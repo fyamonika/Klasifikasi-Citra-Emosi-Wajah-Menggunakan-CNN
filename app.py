@@ -1,13 +1,3 @@
-"""
-Dashboard Klasifikasi Emosi Wajah (Langkah 7).
-
-Letak app.py bebas: aplikasi otomatis mencari folder yang berisi hasil
-notebook (class_names.json, history.json, model .keras, dll.), baik di
-folder output/, di folder yang sama dengan app.py, maupun di subfolder.
-
-Jalankan: streamlit run app.py
-"""
-
 import os
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
