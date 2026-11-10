@@ -54,6 +54,31 @@ LOW_CONFIDENCE = 0.50
 
 MARKER_FILES = ("class_names.json", "dataset_summary.json", "history.json")
 
+# Isi sebuah file .keras (zip) yang sudah di-ekstrak
+REQUIRED_MODEL_FILES = ("config.json", "metadata.json", "model.weights.h5")
+
+
+def is_extracted_model(d: Path) -> bool:
+    """Folder berisi isi .keras yang sudah di-ekstrak."""
+    return d.is_dir() and all((d / n).is_file() for n in REQUIRED_MODEL_FILES)
+
+
+def list_models(out_dir: Path) -> dict:
+    """Kumpulkan semua model: file .keras, atau folder hasil ekstrak."""
+    models = {}
+    for p in sorted(out_dir.glob("*.keras")):
+        models[p.name] = p
+    if is_extracted_model(out_dir):
+        models["model (folder output)"] = out_dir
+    for sub in sorted(out_dir.iterdir()):
+        if (
+            sub.is_dir()
+            and not sub.name.startswith(".")
+            and is_extracted_model(sub)
+        ):
+            models[f"{sub.name}/"] = sub
+    return models
+
 
 def _looks_like_output(d: Path) -> bool:
     """Folder dianggap folder output jika berisi file hasil notebook."""
@@ -110,11 +135,10 @@ def _load_json(path: str, mtime: float):
 def _load_model(path: str, mtime: float):
     model_path = Path(path)
 
-    # Jika model berbentuk folder
+    # Jika model berbentuk folder hasil ekstrak .keras
     if model_path.is_dir():
-        required_files = ["config.json", "metadata.json", "model.weights.h5"]
         missing_files = [
-            n for n in required_files if not (model_path / n).is_file()
+            n for n in REQUIRED_MODEL_FILES if not (model_path / n).is_file()
         ]
         if missing_files:
             raise FileNotFoundError(
@@ -129,15 +153,12 @@ def _load_model(path: str, mtime: float):
             ) as temp_file:
                 temp_path = Path(temp_file.name)
 
+            # Hanya 3 file yang dibutuhkan (bukan seluruh isi folder)
             with zipfile.ZipFile(
                 temp_path, "w", compression=zipfile.ZIP_DEFLATED
             ) as archive:
-                for item in model_path.rglob("*"):
-                    if item.is_file():
-                        archive.write(
-                            item,
-                            arcname=item.relative_to(model_path).as_posix()
-                        )
+                for name in REQUIRED_MODEL_FILES:
+                    archive.write(model_path / name, arcname=name)
 
             return tf.keras.models.load_model(str(temp_path), compile=False)
 
@@ -374,16 +395,16 @@ if not out_dir.is_dir():
     )
     st.stop()
 
-# Cari semua model .keras di folder output
-model_files = sorted(p.name for p in out_dir.glob("*.keras"))
+# Cari semua model (.keras atau folder hasil ekstrak) di folder output
+model_options = list_models(out_dir)
 
 model_choice = (
     st.sidebar.selectbox(
         "Model untuk prediksi",
-        model_files,
-        help="Pilih file model .keras yang akan dipakai untuk prediksi."
+        list(model_options.keys()),
+        help="Pilih model (.keras atau folder hasil ekstrak)."
     )
-    if model_files
+    if model_options
     else None
 )
 
@@ -693,11 +714,12 @@ with tab_pred:
 
     if model_choice is None or not class_names:
         st.warning(
-            "Model (file `.keras`) atau `class_names.json` "
+            "Model (`.keras` atau folder berisi `config.json`, "
+            "`metadata.json`, `model.weights.h5`) atau `class_names.json` "
             "tidak ditemukan di folder output."
         )
     else:
-        model_path = out_dir / model_choice
+        model_path = model_options[model_choice]
 
         try:
             model = _load_model(str(model_path), model_path.stat().st_mtime)
